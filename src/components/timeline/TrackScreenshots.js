@@ -63,18 +63,23 @@ class Screenshots extends PureComponent<Props, State> {
     offsetX: null,
     pageX: null,
     containerTop: null,
+    animateProfileTime: null,
   };
 
   findScreenshotAtMouse(offsetX: number): number | null {
-    const { width, rangeStart, rangeEnd, screenshots } = this.props;
+    const { width, rangeStart, rangeEnd } = this.props;
     const rangeLength = rangeEnd - rangeStart;
     const mouseTime = (offsetX / width) * rangeLength + rangeStart;
+    return this.findScreenshotAtTime(mouseTime);
+  }
 
+  findScreenshotAtTime(time: number): number | null {
+    const { screenshots } = this.props;
     // Loop backwards to find the latest screenshot that has a time less
     // than the current time at the mouse position.
     for (let i = screenshots.length - 1; i >= 0; i--) {
       const screenshotTime = screenshots[i].start;
-      if (mouseTime >= screenshotTime) {
+      if (time >= screenshotTime) {
         return i;
       }
     }
@@ -86,15 +91,35 @@ class Screenshots extends PureComponent<Props, State> {
       offsetX: null,
       pageX: null,
       containerTop: null,
+      animateStartTime: null,
+      animateProfileTime: null,
     });
   };
 
+  _getAnimateProfileTime(startTime: number): number {
+    const { rangeStart, rangeEnd } = this.props;
+    const rangeLength = rangeEnd - rangeStart;
+    return ((+new Date() - startTime) % rangeLength) + rangeStart;
+  }
+
   _handleMouseMove = (event: SyntheticMouseEvent<HTMLDivElement>) => {
     const { top, left } = event.currentTarget.getBoundingClientRect();
-    this.setState({
-      pageX: event.pageX,
-      offsetX: event.pageX - left,
-      containerTop: top,
+    this.setState(state => {
+      const offsetX = event.pageX - left;
+      let { animateStartTime } = state;
+      if (animateStartTime === null) {
+        const { width, rangeStart, rangeEnd } = this.props;
+        const rangeLength = rangeEnd - rangeStart;
+        const mouseTime = (offsetX / width) * rangeLength;
+        animateStartTime = +new Date() - mouseTime;
+      }
+      return {
+        pageX: event.pageX,
+        offsetX,
+        containerTop: top,
+        animateStartTime,
+        animateProfileTime: this._getAnimateProfileTime(animateStartTime),
+      };
     });
   };
 
@@ -141,11 +166,24 @@ class Screenshots extends PureComponent<Props, State> {
       trackHeight,
     } = this.props;
 
-    const { pageX, offsetX, containerTop } = this.state;
+    const { pageX, offsetX, containerTop, animateProfileTime } = this.state;
     let payload: ScreenshotPayload | null = null;
 
-    if (offsetX !== null) {
-      const screenshotIndex = this.findScreenshotAtMouse(offsetX);
+    if (offsetX !== null || animateProfileTime !== null) {
+      let screenshotIndex;
+      if (animateProfileTime !== null) {
+        screenshotIndex = this.findScreenshotAtTime(animateProfileTime);
+        window.requestAnimationFrame(() =>
+          this.setState(state => ({
+            animateProfileTime:
+              state.animateStartTime === null
+                ? null
+                : this._getAnimateProfileTime(state.animateStartTime),
+          }))
+        );
+      } else {
+        screenshotIndex = this.findScreenshotAtMouse(offsetX);
+      }
       if (screenshotIndex !== null) {
         payload = (screenshots[screenshotIndex].data: any);
       }
